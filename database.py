@@ -4,6 +4,8 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+SEM_TAGS = "sem tags"  # tag virtual gerenciada automaticamente
+
 def _get_db_path():
     return os.path.join(BASE_DIR, "photomanager.db")
 
@@ -43,6 +45,38 @@ def initialize_db():
     """)
     conn.commit()
 
+# ── HELPERS INTERNOS ───────────────────────────────────────
+
+def get_or_create_tag(conn, name: str) -> int:
+    row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
+    if row:
+        return row["id"]
+    cursor = conn.execute("INSERT INTO tags (name) VALUES (?)", (name,))
+    return cursor.lastrowid
+
+def _assign_sem_tags(conn, photo_id: int):
+    """Atribui 'sem tags' se a foto não tiver nenhuma tag real."""
+    real_tags = conn.execute("""
+        SELECT COUNT(*) as c FROM photo_tags pt
+        JOIN tags t ON t.id = pt.tag_id
+        WHERE pt.photo_id = ? AND t.name != ?
+    """, (photo_id, SEM_TAGS)).fetchone()["c"]
+
+    if real_tags == 0:
+        tag_id = get_or_create_tag(conn, SEM_TAGS)
+        conn.execute(
+            "INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) VALUES (?, ?)",
+            (photo_id, tag_id)
+        )
+    else:
+        # remove "sem tags" se existir
+        row = conn.execute("SELECT id FROM tags WHERE name = ?", (SEM_TAGS,)).fetchone()
+        if row:
+            conn.execute(
+                "DELETE FROM photo_tags WHERE photo_id = ? AND tag_id = ?",
+                (photo_id, row["id"])
+            )
+
 # ── FOTOS ──────────────────────────────────────────────────
 
 def add_photo(filename: str, original_name: str, file_hash: str, taken_date: str = None) -> int:
@@ -52,8 +86,11 @@ def add_photo(filename: str, original_name: str, file_hash: str, taken_date: str
            VALUES (?, ?, ?, ?, ?)""",
         (filename, original_name, file_hash, datetime.now().isoformat(), taken_date)
     )
+    photo_id = cursor.lastrowid
+    # toda foto nova começa com "sem tags"
+    _assign_sem_tags(conn, photo_id)
     conn.commit()
-    return cursor.lastrowid
+    return photo_id
 
 def hash_exists(file_hash: str) -> bool:
     conn = get_connection()
@@ -80,6 +117,7 @@ def get_photos_by_tags(tag_names: list) -> list:
     return [dict(r) for r in conn.execute(query, tag_names + [len(tag_names)]).fetchall()]
 
 def get_photo_tags(photo_id: int) -> list:
+    """Retorna todas as tags da foto, incluindo 'sem tags' se aplicável."""
     conn = get_connection()
     rows = conn.execute(
         "SELECT t.name FROM tags t JOIN photo_tags pt ON pt.tag_id = t.id WHERE pt.photo_id = ?",
@@ -87,21 +125,37 @@ def get_photo_tags(photo_id: int) -> list:
     ).fetchall()
     return [r["name"] for r in rows]
 
+def get_photo_real_tags(photo_id: int) -> list:
+    """Retorna apenas as tags reais (exclui 'sem tags')."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT t.name FROM tags t
+           JOIN photo_tags pt ON pt.tag_id = t.id
+           WHERE pt.photo_id = ? AND t.name != ?""",
+        (photo_id, SEM_TAGS)
+    ).fetchall()
+    return [r["name"] for r in rows]
+
 def delete_photo(photo_id: int, filename: str):
     conn = get_connection()
     conn.execute("DELETE FROM photos WHERE id = ?", (photo_id,))
     conn.commit()
-    for folder in ["photos", "thumbnails"]:
+    for folder in [
+        os.path.join(BASE_DIR, "photos"),
+        os.path.join(BASE_DIR, "thumbnails")
+    ]:
         path = os.path.join(folder, filename)
         if os.path.exists(path):
             os.remove(path)
 
 def delete_photos_bulk(photos: list):
-    """Remove uma lista de fotos de uma vez. Cada item deve ter 'id' e 'filename'."""
     conn = get_connection()
     for photo in photos:
         conn.execute("DELETE FROM photos WHERE id = ?", (photo["id"],))
-        for folder in ["photos", "thumbnails"]:
+        for folder in [
+            os.path.join(BASE_DIR, "photos"),
+            os.path.join(BASE_DIR, "thumbnails")
+        ]:
             path = os.path.join(folder, photo["filename"])
             if os.path.exists(path):
                 os.remove(path)
@@ -109,56 +163,94 @@ def delete_photos_bulk(photos: list):
 
 # ── TAGS ───────────────────────────────────────────────────
 
-def get_or_create_tag(conn, name: str) -> int:
-    row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
-    if row:
-        return row["id"]
-    cursor = conn.execute("INSERT INTO tags (name) VALUES (?)", (name,))
-    return cursor.lastrowid
-
 def get_all_tags() -> list:
+    """Retorna todas as tags incluindo 'sem tags' (para filtros e gerenciador)."""
     conn = get_connection()
     rows = conn.execute("SELECT name FROM tags ORDER BY name").fetchall()
     return [r["name"] for r in rows]
 
-def set_photo_tags(photo_id: int, tag_names: list):
+def get_user_tags() -> list:
+    """Retorna apenas as tags criadas pelo usuário (exclui 'sem tags')."""
     conn = get_connection()
-    conn.execute("DELETE FROM photo_tags WHERE photo_id = ?", (photo_id,))
+    rows = conn.execute(
+        "SELECT name FROM tags WHERE name != ? ORDER BY name", (SEM_TAGS,)
+    ).fetchall()
+    return [r["name"] for r in rows]
+
+def set_photo_tags(photo_id: int, tag_names: list):
+    """Define as tags de uma foto. Gerencia 'sem tags' automaticamente."""
+    conn = get_connection()
+    # remove apenas as tags reais (não toca em "sem tags" manualmente)
+    real_tag_ids = conn.execute(
+        "SELECT id FROM tags WHERE name != ?", (SEM_TAGS,)
+    ).fetchall()
+    for row in real_tag_ids:
+        conn.execute(
+            "DELETE FROM photo_tags WHERE photo_id = ? AND tag_id = ?",
+            (photo_id, row["id"])
+        )
+
     for name in tag_names:
-        tag_id = get_or_create_tag(conn, name.strip())
+        name = name.strip()
+        if name == SEM_TAGS:
+            continue  # nunca adiciona "sem tags" manualmente
+        tag_id = get_or_create_tag(conn, name)
         conn.execute(
             "INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) VALUES (?, ?)",
             (photo_id, tag_id)
         )
+
+    _assign_sem_tags(conn, photo_id)
     conn.commit()
 
 def add_tags_bulk(photo_ids: list, tag_names: list):
-    """Adiciona as tags informadas a várias fotos sem remover as existentes."""
+    """Adiciona tags a várias fotos. Remove 'sem tags' automaticamente."""
     conn = get_connection()
     for photo_id in photo_ids:
         for name in tag_names:
-            tag_id = get_or_create_tag(conn, name.strip())
+            name = name.strip()
+            if name == SEM_TAGS:
+                continue
+            tag_id = get_or_create_tag(conn, name)
             conn.execute(
                 "INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) VALUES (?, ?)",
                 (photo_id, tag_id)
             )
+        _assign_sem_tags(conn, photo_id)
     conn.commit()
 
 def remove_tags_bulk(photo_ids: list, tag_names: list):
-    """Remove as tags informadas de várias fotos."""
+    """Remove tags de várias fotos. Adiciona 'sem tags' se necessário."""
     conn = get_connection()
     for photo_id in photo_ids:
         for name in tag_names:
+            if name == SEM_TAGS:
+                continue
             row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
             if row:
                 conn.execute(
                     "DELETE FROM photo_tags WHERE photo_id = ? AND tag_id = ?",
                     (photo_id, row["id"])
                 )
+        _assign_sem_tags(conn, photo_id)
     conn.commit()
 
 def delete_tag(tag_name: str):
-    """Remove uma tag do sistema e de todas as fotos que a possuem."""
+    """Remove uma tag do sistema. Não permite deletar 'sem tags'."""
+    if tag_name == SEM_TAGS:
+        return
     conn = get_connection()
+    # pega fotos afetadas antes de deletar
+    affected = conn.execute("""
+        SELECT pt.photo_id FROM photo_tags pt
+        JOIN tags t ON t.id = pt.tag_id
+        WHERE t.name = ?
+    """, (tag_name,)).fetchall()
+
     conn.execute("DELETE FROM tags WHERE name = ?", (tag_name,))
+    conn.commit()
+
+    # verifica se alguma foto ficou sem tags reais
+    for row in affected:
+        _assign_sem_tags(conn, row["photo_id"])
     conn.commit()

@@ -27,7 +27,8 @@ class PhotoManagerApp(ctk.CTk):
 
         self._build_ui()
         self._refresh_tag_list()
-        self._load_photos()
+        # ← adia o primeiro load até a janela estar renderizada
+        self.after(100, self._load_photos)
 
     def _build_ui(self):
         self.toggle_btn = ctk.CTkButton(
@@ -248,7 +249,7 @@ class PhotoManagerApp(ctk.CTk):
         scroll   = ctk.CTkScrollableFrame(win)
         scroll.pack(fill="both", expand=True, padx=15)
 
-        for tag in db.get_all_tags():
+        for tag in db.get_user_tags():
             var = ctk.BooleanVar(value=False)
             ctk.CTkCheckBox(scroll, text=tag, variable=var).pack(anchor="w", pady=2)
             vars_map[tag] = var
@@ -312,7 +313,7 @@ class PhotoManagerApp(ctk.CTk):
             for w in scroll.winfo_children():
                 w.destroy()
             s    = search_var.get().lower()
-            tags = [t for t in db.get_all_tags() if s in t.lower()]
+            tags = [t for t in db.get_all_tags() if s in t.lower() and t != db.SEM_TAGS]
             if not tags:
                 ctk.CTkLabel(scroll, text="Nenhuma tag encontrada.", text_color="gray").pack(pady=20)
                 return
@@ -522,12 +523,12 @@ class PhotoManagerApp(ctk.CTk):
 
         ctk.CTkLabel(win, text="Tags desta foto", font=("Arial", 14, "bold")).pack(pady=10)
 
-        current_tags = set(db.get_photo_tags(photo_id))
+        current_tags = set(db.get_photo_real_tags(photo_id))
         vars_map     = {}
         scroll       = ctk.CTkScrollableFrame(win)
         scroll.pack(fill="both", expand=True, padx=15)
 
-        for tag in db.get_all_tags():
+        for tag in db.get_user_tags():
             var = ctk.BooleanVar(value=tag in current_tags)
             ctk.CTkCheckBox(scroll, text=tag, variable=var).pack(anchor="w", pady=2)
             vars_map[tag] = var
