@@ -97,11 +97,21 @@ def hash_exists(file_hash: str) -> bool:
     row = conn.execute("SELECT id FROM photos WHERE file_hash = ?", (file_hash,)).fetchone()
     return row is not None
 
-def get_photos_by_tags(tag_names: list) -> list:
+def get_photos_by_tags(tag_names: list, order: str = "recentes") -> list:
+    ORDER_MAP = {
+        "recentes": ("taken_date DESC, import_date DESC",
+                     "p.taken_date DESC, p.import_date DESC"),
+        "antigas":  ("taken_date ASC, import_date ASC",
+                     "p.taken_date ASC, p.import_date ASC"),
+        "nome":     ("original_name COLLATE NOCASE ASC",
+                     "p.original_name COLLATE NOCASE ASC"),
+    }
+    order_simple, order_join = ORDER_MAP.get(order, ORDER_MAP["recentes"])
+
     conn = get_connection()
     if not tag_names:
         return [dict(r) for r in conn.execute(
-            "SELECT * FROM photos ORDER BY taken_date DESC, import_date DESC"
+            f"SELECT * FROM photos ORDER BY {order_simple}"
         ).fetchall()]
 
     placeholders = ",".join("?" * len(tag_names))
@@ -112,7 +122,7 @@ def get_photos_by_tags(tag_names: list) -> list:
         WHERE t.name IN ({placeholders})
         GROUP BY p.id
         HAVING COUNT(DISTINCT t.id) = ?
-        ORDER BY p.taken_date DESC, p.import_date DESC
+        ORDER BY {order_join}
     """
     return [dict(r) for r in conn.execute(query, tag_names + [len(tag_names)]).fetchall()]
 

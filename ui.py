@@ -24,6 +24,7 @@ class PhotoManagerApp(ctk.CTk):
         self._sidebar_visible    = True
         self._after_id           = None
         self._last_cols          = 0
+        self._order              = "recentes"  # ← ordenação atual
 
         self._build_ui()
         self._refresh_tag_list()
@@ -81,6 +82,18 @@ class PhotoManagerApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(top_bar, text="", anchor="w")
         self.status_label.pack(side="left", fill="x", expand=True)
 
+        # ← seletor de ordenação
+        ctk.CTkLabel(top_bar, text="Ordenar:").pack(side="left", padx=(0, 4))
+        self.order_var = ctk.StringVar(value="Mais recentes")
+        self.order_menu = ctk.CTkOptionMenu(
+            top_bar,
+            variable=self.order_var,
+            values=["Mais recentes", "Mais antigas", "Nome"],
+            width=140,
+            command=self._on_order_change
+        )
+        self.order_menu.pack(side="left", padx=(0, 10))
+
         self.select_mode_btn = ctk.CTkButton(
             top_bar, text="☑ Selecionar", width=130,
             command=self._toggle_selection_mode
@@ -93,6 +106,15 @@ class PhotoManagerApp(ctk.CTk):
 
         self.action_bar = ctk.CTkFrame(self.right_panel, height=55, fg_color="#1e1e2e")
         self._build_action_bar()
+
+    def _on_order_change(self, choice: str):
+        ORDER_MAP = {
+            "Mais recentes": "recentes",
+            "Mais antigas":  "antigas",
+            "Nome":          "nome",
+        }
+        self._order = ORDER_MAP[choice]
+        self._load_photos()
 
     def _toggle_sidebar(self):
         if self._sidebar_visible:
@@ -427,7 +449,7 @@ class PhotoManagerApp(ctk.CTk):
             w.destroy()
         self._gallery_items = {}
 
-        photos = db.get_photos_by_tags(list(self.selected_filter_tags))
+        photos = db.get_photos_by_tags(list(self.selected_filter_tags), order=self._order)
         self.status_label.configure(text=f"{len(photos)} foto(s) encontrada(s)")
 
         for i, photo in enumerate(photos):
