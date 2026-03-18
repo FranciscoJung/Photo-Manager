@@ -254,3 +254,14 @@ def delete_tag(tag_name: str):
     for row in affected:
         _assign_sem_tags(conn, row["photo_id"])
     conn.commit()
+
+def rename_tag(old_name: str, new_name: str):
+    """Renomeia uma tag. Não permite renomear 'sem tags'."""
+    if old_name == SEM_TAGS:
+        return
+    new_name = new_name.strip()
+    if not new_name or new_name == SEM_TAGS:
+        return
+    conn = get_connection()
+    conn.execute("UPDATE tags SET name = ? WHERE name = ?", (new_name, old_name))
+    conn.commit()

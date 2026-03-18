@@ -27,7 +27,6 @@ class PhotoManagerApp(ctk.CTk):
 
         self._build_ui()
         self._refresh_tag_list()
-        # ← adia o primeiro load até a janela estar renderizada
         self.after(100, self._load_photos)
 
     def _build_ui(self):
@@ -289,7 +288,7 @@ class PhotoManagerApp(ctk.CTk):
     def _open_tag_manager(self):
         win = ctk.CTkToplevel(self)
         win.title("Gerenciar Tags")
-        win.geometry("380x500")
+        win.geometry("420x500")
         win.lift(); win.focus_force()
         win.attributes("-topmost", True)
         win.after(200, lambda: win.attributes("-topmost", False))
@@ -297,8 +296,8 @@ class PhotoManagerApp(ctk.CTk):
 
         ctk.CTkLabel(win, text="Gerenciar Tags", font=("Arial", 14, "bold")).pack(pady=10)
         ctk.CTkLabel(
-            win, text="Excluir uma tag a remove de todas as fotos.",
-            font=("Arial", 10), text_color="gray"
+            win, text="Renomeie ou exclua tags. Alterações se aplicam a todas as fotos.",
+            font=("Arial", 10), text_color="gray", wraplength=380
         ).pack(pady=(0, 8))
 
         search_var = ctk.StringVar()
@@ -317,12 +316,54 @@ class PhotoManagerApp(ctk.CTk):
             if not tags:
                 ctk.CTkLabel(scroll, text="Nenhuma tag encontrada.", text_color="gray").pack(pady=20)
                 return
+
             for tag in tags:
                 row = ctk.CTkFrame(scroll, fg_color="transparent")
                 row.pack(fill="x", pady=2)
+
                 ctk.CTkLabel(row, text=tag, anchor="w").pack(
                     side="left", fill="x", expand=True, padx=5
                 )
+
+                def make_rename(t=tag):
+                    def do():
+                        dialog = ctk.CTkToplevel(win)
+                        dialog.title("Renomear Tag")
+                        dialog.geometry("320x150")
+                        dialog.lift(); dialog.focus_force()
+                        dialog.attributes("-topmost", True)
+                        dialog.after(200, lambda: dialog.attributes("-topmost", False))
+                        dialog.grab_set()
+
+                        ctk.CTkLabel(dialog, text=f"Novo nome para '{t}':").pack(pady=(15, 5))
+                        entry = ctk.CTkEntry(dialog)
+                        entry.insert(0, t)
+                        entry.pack(fill="x", padx=20)
+                        entry.select_range(0, "end")
+                        entry.focus_set()
+
+                        def confirm():
+                            new_name = entry.get().strip()
+                            if not new_name:
+                                return
+                            if new_name == t:
+                                dialog.destroy()
+                                return
+                            if t in self.selected_filter_tags:
+                                self.selected_filter_tags.discard(t)
+                                self.selected_filter_tags.add(new_name)
+                            db.rename_tag(t, new_name)
+                            dialog.destroy()
+                            render_tags()
+                            self._refresh_tag_list()
+                            self._load_photos()
+
+                        entry.bind("<Return>", lambda e: confirm())
+                        ctk.CTkButton(
+                            dialog, text="Confirmar",
+                            fg_color="#2a6496", command=confirm
+                        ).pack(pady=10)
+                    return do
 
                 def make_delete(t=tag):
                     def do():
@@ -339,10 +380,16 @@ class PhotoManagerApp(ctk.CTk):
                     return do
 
                 ctk.CTkButton(
-                    row, text="Excluir", width=70,
+                    row, text="Excluir", width=65,
                     fg_color="#c0392b", hover_color="#96281b",
                     command=make_delete()
-                ).pack(side="right", padx=5)
+                ).pack(side="right", padx=(2, 5))
+
+                ctk.CTkButton(
+                    row, text="Renomear", width=80,
+                    fg_color="#2a6496", hover_color="#1a4a7a",
+                    command=make_rename()
+                ).pack(side="right", padx=2)
 
         search_var.trace_add("write", lambda *_: render_tags())
         render_tags()
@@ -426,7 +473,8 @@ class PhotoManagerApp(ctk.CTk):
                 ctk.CTkLabel(frame, text="[Erro]").pack()
 
             tags     = db.get_photo_tags(photo["id"])
-            tag_text = ", ".join(tags) if tags else "sem tags"
+            real     = [t for t in tags if t != db.SEM_TAGS]
+            tag_text = ", ".join(real) if real else "sem tags"
             ctk.CTkLabel(
                 frame, text=tag_text, wraplength=THUMB_SIZE, font=("Arial", 10)
             ).pack(pady=(2, 5))
@@ -480,7 +528,8 @@ class PhotoManagerApp(ctk.CTk):
         except Exception:
             ctk.CTkLabel(win, text="Não foi possível carregar a imagem").pack()
 
-        tags_str = ", ".join(db.get_photo_tags(photo["id"])) or "nenhuma"
+        real_tags = db.get_photo_real_tags(photo["id"])
+        tags_str  = ", ".join(real_tags) if real_tags else "sem tags"
         ctk.CTkLabel(win, text=f"Tags: {tags_str}").pack()
 
         ctk.CTkButton(
