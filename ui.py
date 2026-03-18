@@ -425,11 +425,13 @@ class PhotoManagerApp(ctk.CTk):
         for w in self.tag_list_frame.winfo_children():
             w.destroy()
         s    = self.tag_search_var.get().lower()
-        tags = [t for t in db.get_all_tags() if s in t.lower()]
-        for tag in tags:
-            var = ctk.BooleanVar(value=tag in self.selected_filter_tags)
+        tags = [(name, count) for name, count in db.get_tags_with_count()
+                if s in name.lower()]
+        for tag, count in tags:
+            var   = ctk.BooleanVar(value=tag in self.selected_filter_tags)
+            label = f"{tag} ({count})"
             ctk.CTkCheckBox(
-                self.tag_list_frame, text=tag, variable=var,
+                self.tag_list_frame, text=label, variable=var,
                 command=lambda t=tag, v=var: self._toggle_filter_tag(t, v)
             ).pack(anchor="w", pady=2)
 

@@ -187,6 +187,18 @@ def get_user_tags() -> list:
     ).fetchall()
     return [r["name"] for r in rows]
 
+def get_tags_with_count() -> list:
+    """Retorna lista de (tag_name, count) ordenada alfabeticamente."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT t.name, COUNT(pt.photo_id) as total
+        FROM tags t
+        LEFT JOIN photo_tags pt ON pt.tag_id = t.id
+        GROUP BY t.id
+        ORDER BY t.name
+    """).fetchall()
+    return [(r["name"], r["total"]) for r in rows]
+
 def set_photo_tags(photo_id: int, tag_names: list):
     """Define as tags de uma foto. Gerencia 'sem tags' automaticamente."""
     conn = get_connection()
