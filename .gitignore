@@ -1,0 +1,12 @@
+venv/
+photos/
+thumbnails/
+photomanager.db
+photomanager.db-shm
+photomanager.db-wal
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
