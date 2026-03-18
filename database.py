@@ -275,3 +275,8 @@ def rename_tag(old_name: str, new_name: str):
     conn = get_connection()
     conn.execute("UPDATE tags SET name = ? WHERE name = ?", (new_name, old_name))
     conn.commit()
+
+def rename_photo(photo_id: int, new_name: str):
+    conn = get_connection()
+    conn.execute("UPDATE photos SET original_name = ? WHERE id = ?", (new_name.strip(), photo_id))
+    conn.commit()

@@ -24,7 +24,7 @@ class PhotoManagerApp(ctk.CTk):
         self._sidebar_visible    = True
         self._after_id           = None
         self._last_cols          = 0
-        self._order              = "recentes"  # ← ordenação atual
+        self._order              = "recentes"
 
         self._build_ui()
         self._refresh_tag_list()
@@ -82,17 +82,15 @@ class PhotoManagerApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(top_bar, text="", anchor="w")
         self.status_label.pack(side="left", fill="x", expand=True)
 
-        # ← seletor de ordenação
         ctk.CTkLabel(top_bar, text="Ordenar:").pack(side="left", padx=(0, 4))
         self.order_var = ctk.StringVar(value="Mais recentes")
-        self.order_menu = ctk.CTkOptionMenu(
+        ctk.CTkOptionMenu(
             top_bar,
             variable=self.order_var,
             values=["Mais recentes", "Mais antigas", "Nome"],
             width=140,
             command=self._on_order_change
-        )
-        self.order_menu.pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 10))
 
         self.select_mode_btn = ctk.CTkButton(
             top_bar, text="☑ Selecionar", width=130,
@@ -366,9 +364,7 @@ class PhotoManagerApp(ctk.CTk):
 
                         def confirm():
                             new_name = entry.get().strip()
-                            if not new_name:
-                                return
-                            if new_name == t:
+                            if not new_name or new_name == t:
                                 dialog.destroy()
                                 return
                             if t in self.selected_filter_tags:
@@ -494,12 +490,21 @@ class PhotoManagerApp(ctk.CTk):
             except Exception:
                 ctk.CTkLabel(frame, text="[Erro]").pack()
 
+            # ── nome do arquivo ──
+            nome = photo.get("original_name") or photo["filename"]
+            ctk.CTkLabel(
+                frame, text=nome, wraplength=THUMB_SIZE,
+                font=("Arial", 10, "bold"), text_color="#cccccc"
+            ).pack(pady=(4, 0))
+
+            # ── tags ──
             tags     = db.get_photo_tags(photo["id"])
             real     = [t for t in tags if t != db.SEM_TAGS]
             tag_text = ", ".join(real) if real else "sem tags"
             ctk.CTkLabel(
-                frame, text=tag_text, wraplength=THUMB_SIZE, font=("Arial", 10)
-            ).pack(pady=(2, 5))
+                frame, text=tag_text, wraplength=THUMB_SIZE,
+                font=("Arial", 10), text_color="#888888"
+            ).pack(pady=(0, 5))
 
     def _import_photos(self):
         files = filedialog.askopenfilenames(
@@ -537,7 +542,7 @@ class PhotoManagerApp(ctk.CTk):
     def _open_photo_detail(self, photo):
         win = ctk.CTkToplevel(self)
         win.title(photo.get("original_name", "Foto"))
-        win.geometry("700x650")
+        win.geometry("700x700")
         win.lift(); win.focus_force()
         win.attributes("-topmost", True)
         win.after(200, lambda: win.attributes("-topmost", False))
@@ -550,6 +555,30 @@ class PhotoManagerApp(ctk.CTk):
         except Exception:
             ctk.CTkLabel(win, text="Não foi possível carregar a imagem").pack()
 
+        # ── nome com opção de renomear ──
+        nome_frame = ctk.CTkFrame(win, fg_color="transparent")
+        nome_frame.pack(fill="x", padx=20, pady=(0, 5))
+
+        nome_var = ctk.StringVar(value=photo.get("original_name", ""))
+        nome_entry = ctk.CTkEntry(nome_frame, textvariable=nome_var, width=380)
+        nome_entry.pack(side="left", fill="x", expand=True)
+
+        def salvar_nome():
+            novo = nome_var.get().strip()
+            if novo and novo != photo.get("original_name", ""):
+                db.rename_photo(photo["id"], novo)
+                win.title(novo)
+                self._load_photos()
+
+        ctk.CTkButton(
+            nome_frame, text="✎", width=36,
+            fg_color="#2a6496", hover_color="#1a4a7a",
+            command=salvar_nome
+        ).pack(side="left", padx=(6, 0))
+
+        nome_entry.bind("<Return>", lambda e: salvar_nome())
+
+        # ── tags ──
         real_tags = db.get_photo_real_tags(photo["id"])
         tags_str  = ", ".join(real_tags) if real_tags else "sem tags"
         ctk.CTkLabel(win, text=f"Tags: {tags_str}").pack()
