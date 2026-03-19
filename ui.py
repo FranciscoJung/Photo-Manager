@@ -24,8 +24,8 @@ class PhotoManagerApp(ctk.CTk):
         self._sidebar_visible    = True
         self._after_id           = None
         self._last_cols          = 0
-        self._order              = "recentes"
-        self._show_names         = ctk.BooleanVar(value=False)
+        self._order              = "recentes"  # Estado para ordenação
+        self._show_names         = ctk.BooleanVar(value=False) # Estado para mostrar nomes
 
         self._build_ui()
         self._refresh_tag_list()
@@ -372,7 +372,9 @@ class PhotoManagerApp(ctk.CTk):
 
                         def confirm():
                             new_name = entry.get().strip()
-                            if not new_name or new_name == t:
+                            if not new_name:
+                                return
+                            if new_name == t:
                                 dialog.destroy()
                                 return
                             if t in self.selected_filter_tags:
@@ -525,7 +527,7 @@ class PhotoManagerApp(ctk.CTk):
             return
 
         imported = duplicates = 0
-        last_id  = None
+        imported_photo_ids = [] # Lista para coletar todos os IDs
 
         for filepath in files:
             result = utils.import_photo(filepath)
@@ -535,7 +537,8 @@ class PhotoManagerApp(ctk.CTk):
             file_hash, new_filename = result
             taken_date = utils.get_exif_date(filepath)
             original   = os.path.basename(filepath)
-            last_id    = db.add_photo(new_filename, original, file_hash, taken_date)
+            photo_id   = db.add_photo(new_filename, original, file_hash, taken_date)
+            imported_photo_ids.append(photo_id) # Adiciona o ID à lista
             imported  += 1
 
         msg = f"{imported} foto(s) importada(s)."
@@ -543,8 +546,8 @@ class PhotoManagerApp(ctk.CTk):
             msg += f" {duplicates} duplicata(s) ignorada(s)."
         messagebox.showinfo("Importação concluída", msg)
 
-        if last_id:
-            self._open_tag_editor(last_id)
+        if imported_photo_ids: # Se houver fotos importadas, abre o editor de tags em lote
+            self._open_tag_editor(imported_photo_ids) # Passa a lista de IDs
 
         self._refresh_tag_list()
         self._load_photos()
@@ -595,7 +598,7 @@ class PhotoManagerApp(ctk.CTk):
 
         ctk.CTkButton(
             win, text="Editar Tags",
-            command=lambda: [win.destroy(), self._open_tag_editor(photo["id"])]
+            command=lambda: [win.destroy(), self._open_tag_editor([photo["id"]])] # Passa lista de 1 ID
         ).pack(pady=5)
 
         ctk.CTkButton(
@@ -622,7 +625,7 @@ class PhotoManagerApp(ctk.CTk):
             command=confirmar_remocao
         ).pack(pady=(15, 5))
 
-    def _open_tag_editor(self, photo_id):
+    def _open_tag_editor(self, photo_ids: list): # Agora aceita uma lista de IDs
         win = ctk.CTkToplevel(self)
         win.title("Editar Tags")
         win.geometry("400x500")
@@ -631,9 +634,22 @@ class PhotoManagerApp(ctk.CTk):
         win.after(200, lambda: win.attributes("-topmost", False))
         win.grab_set()
 
-        ctk.CTkLabel(win, text="Tags desta foto", font=("Arial", 14, "bold")).pack(pady=10)
+        # Ajustar o texto do título e tags iniciais
+        if len(photo_ids) == 1:
+            ctk.CTkLabel(win, text="Tags desta foto", font=("Arial", 14, "bold")).pack(pady=10)
+            current_tags = set(db.get_photo_real_tags(photo_ids[0]))
+        else:
+            ctk.CTkLabel(win, text=f"Tags para {len(photo_ids)} fotos", font=("Arial", 14, "bold")).pack(pady=10)
+            # Para múltiplas fotos, tentamos pegar tags comuns se houver
+            if photo_ids:
+                common_tags = set(db.get_photo_real_tags(photo_ids[0]))
+                for i in range(1, len(photo_ids)):
+                    common_tags.intersection_update(db.get_photo_real_tags(photo_ids[i]))
+                current_tags = common_tags
+            else:
+                current_tags = set()
 
-        current_tags = set(db.get_photo_real_tags(photo_id))
+
         vars_map     = {}
         scroll       = ctk.CTkScrollableFrame(win)
         scroll.pack(fill="both", expand=True, padx=15)
@@ -659,7 +675,7 @@ class PhotoManagerApp(ctk.CTk):
 
         def save():
             selected = [t for t, v in vars_map.items() if v.get()]
-            db.set_photo_tags(photo_id, selected)
+            db.set_tags_bulk(photo_ids, selected) # <-- Usar a nova função set_tags_bulk
             win.destroy()
             self._refresh_tag_list()
             self._load_photos()

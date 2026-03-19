@@ -171,6 +171,11 @@ def delete_photos_bulk(photos: list):
                 os.remove(path)
     conn.commit()
 
+def rename_photo(photo_id: int, new_name: str):
+    conn = get_connection()
+    conn.execute("UPDATE photos SET original_name = ? WHERE id = ?", (new_name.strip(), photo_id))
+    conn.commit()
+
 # ── TAGS ───────────────────────────────────────────────────
 
 def get_all_tags() -> list:
@@ -223,6 +228,33 @@ def set_photo_tags(photo_id: int, tag_names: list):
         )
 
     _assign_sem_tags(conn, photo_id)
+    conn.commit()
+
+def set_tags_bulk(photo_ids: list, tag_names: list):
+    """Define as tags para uma lista de fotos, removendo as existentes e adicionando as novas."""
+    conn = get_connection()
+    for photo_id in photo_ids:
+        # Remove todas as tags reais existentes para esta foto
+        real_tag_ids = conn.execute(
+            "SELECT id FROM tags WHERE name != ?", (SEM_TAGS,)
+        ).fetchall()
+        for row in real_tag_ids:
+            conn.execute(
+                "DELETE FROM photo_tags WHERE photo_id = ? AND tag_id = ?",
+                (photo_id, row["id"])
+            )
+
+        # Adiciona as novas tags
+        for name in tag_names:
+            name = name.strip()
+            if name == SEM_TAGS:
+                continue
+            tag_id = get_or_create_tag(conn, name)
+            conn.execute(
+                "INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) VALUES (?, ?)",
+                (photo_id, tag_id)
+            )
+        _assign_sem_tags(conn, photo_id) # Reavalia "sem tags"
     conn.commit()
 
 def add_tags_bulk(photo_ids: list, tag_names: list):
@@ -286,9 +318,4 @@ def rename_tag(old_name: str, new_name: str):
         return
     conn = get_connection()
     conn.execute("UPDATE tags SET name = ? WHERE name = ?", (new_name, old_name))
-    conn.commit()
-
-def rename_photo(photo_id: int, new_name: str):
-    conn = get_connection()
-    conn.execute("UPDATE photos SET original_name = ? WHERE id = ?", (new_name.strip(), photo_id))
     conn.commit()
