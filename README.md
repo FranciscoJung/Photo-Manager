@@ -22,8 +22,8 @@ Aplicação desktop para organização de fotos locais, construída com Python e
 ## Instalação
 
 ```bash
-git clone https://github.com/seu-usuario/seu-repositorio.git
-cd seu-repositorio
+git clone https://github.com/FranciscoJung/Photo-Manager.git
+cd Photo-Manager
 pip install -r requirements.txt
 python main.py
 ```
